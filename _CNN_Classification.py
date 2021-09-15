@@ -13,7 +13,7 @@ from tqdm.notebook import tqdm
 from sklearn.model_selection import train_test_split
 
 from _utils import save_fig
-DEVICE = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 data_path = os.path.join(os.path.split(os.getcwd())[0], 'data/STEAD')
 result_path = os.path.join(os.path.split(os.getcwd())[0], 'LEQnet_result')
 
@@ -118,15 +118,9 @@ def train(h_params, dataset):
     optimizer = torch.optim.Adam(params, lr=h_params['lr'])
 
     plot_dict = dict()
-    losses = list()
-    val_losses = list()
-    acc = list()
-    prec = list() 
-    rec = list()
-    f1 = list()
+    losses = val_losses = acc = prec = rec = f1 = list()
 
     t0 = time.time()
-
     for epoch in range(1, epochs+1):
 
         for i_step in range(1, total_step+1):
@@ -145,7 +139,6 @@ def train(h_params, dataset):
 
             # - - - Validate - - -
             with torch.no_grad():
-
                 encoder.eval()
 
                 val_inp, val_label = next(iter(dataset['valid_loader']))
@@ -182,6 +175,8 @@ def train(h_params, dataset):
     t1 = time.time()
 
     print('finished in {} seconds'.format(t1 - t0))
+    
+    return encoder
 
 def test(dataset):
     with torch.no_grad():
@@ -195,6 +190,7 @@ def test(dataset):
         test_loss = criterion(test_outputs, test_label)
         test_accuracy, test_precision, test_recall, test_F1_score = metric(test_outputs, test_label)
 
-    stats = 'Loss: %.4f, accuracy : %.4f, precision : %.4f, recall : %.4f, F1_score : %.4f' %                     (test_loss.item(), test_accuracy, test_precision, test_recall, test_F1_score)
+    stats = 'Loss: %.4f, accuracy : %.4f, precision : %.4f, recall : %.4f, F1_score : %.4f' % \
+            (test_loss.item(), test_accuracy, test_precision, test_recall, test_F1_score)
 
     print(stats)

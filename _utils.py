@@ -100,11 +100,11 @@ def load_dataset(params):
         def make_x_p_s(dataset):            
             x = np.array([data['data'].T for data in dataset])
             if params['output'] == 'classification':
-                y_p = np.array([np.array([data['p_label']]) for data in train_dataset])
-                y_s = np.array([np.array([data['s_label']]) for data in train_dataset])
+                y_p = np.array([np.array([data['p_label']]) for data in dataset])
+                y_s = np.array([np.array([data['s_label']]) for data in dataset])
             else:
-                y_p = np.array([data['p_time_label'] for data in train_dataset])
-                y_s = np.array([data['s_time_label'] for data in train_dataset])
+                y_p = np.array([data['p_time_label'] for data in dataset])
+                y_s = np.array([data['s_time_label'] for data in dataset])
                 
             x = torch.as_tensor(x.astype(np.float32))
             y_p = torch.as_tensor(y_p.astype(np.float32))

@@ -80,30 +80,6 @@ class CNNEncoder(nn.Module):
         
         return out
     
-def metric(test_outputs, test_y_p):
-    test_outputs = torch.round(test_outputs)
-    test_y_p = torch.round(test_y_p)
-    TP = FP = TN = FN = 0 + sys.float_info.epsilon
-    
-    for idx in range(len(test_y_p)):
-        for i in range(6):
-            if int(test_outputs[idx][0][i]) != int(test_y_p[idx][0][i]):
-                FP += 1
-                break
-            if i == 5:
-                TP += 1
-#         if torch.round(test_outputs[idx]) == torch.round(test_y_p[idx]):
-#             TN += 1
-#         if torch.round(test_outputs[idx]) == torch.round(test_y_p[idx]):
-#             FN += 1
-            
-    accuracy = (TP + TN) / (TP + FP + TN + FN)
-    precision = TP / (TP + FP)
-    recall = TP / (TP + FN)
-    F1_score = 2*(precision * recall)/(precision + recall)
-    
-    return accuracy, precision, recall, F1_score
-
 def train(h_params, dataset):
     epochs = h_params['epochs']
     batch_size = dataset['batch_size']
@@ -115,15 +91,9 @@ def train(h_params, dataset):
     optimizer = torch.optim.Adam(params, lr=h_params['lr'])
 
     plot_dict = dict()
-    losses = list()
-    val_losses = list()
-    acc = list()
-    prec = list() 
-    rec = list()
-    f1 = list()
-
+    losses = val_losses = acc = prec = rec = f1 = list()
+    
     t0 = time.time()
-
     for epoch in range(1, epochs+1):
 
         for i_step in range(1, total_step+1):
@@ -156,7 +126,6 @@ def train(h_params, dataset):
 
             # - - - Validate - - -
             with torch.no_grad():
-
                 encoder.eval()
                 val_inps, val_labels = next(iter(dataset['valid_loader']))
 
@@ -177,8 +146,8 @@ def train(h_params, dataset):
                         val_loss = criterion(val_outputs[:,:,i], val_labels[:,:,i])
                     else:
                         val_loss += criterion(val_outputs[:,:,i], val_labels[:,:,i])
-#                 val_loss = criterion(val_outputs, val_labels)
-                val_accuracy, val_precision, val_recall, val_F1_score = metric(val_outputs, val_labels)
+                        
+                val_accuracy, val_precision, val_recall, val_F1_score, TP, FP, TN, FN = metric(val_outputs, val_labels)
                 
             val_losses.append(val_loss.item())
             losses.append(loss.item())
@@ -186,9 +155,13 @@ def train(h_params, dataset):
             prec.append(val_precision)
             rec.append(val_recall)
             f1.append(val_F1_score)
-#             print( '\n', outputs[0,:,:], '\n', labels[0,:,:], '\n')
-#             print( '\n', val_outputs[0,:,:], '\n', val_labels[0,:,:], '\n')
-            stats = 'Epoch [%d/%d], Step [%d/%d], Loss: %.4f, Val Loss: %.4f accuracy : %.4f, precision : %.4f, recall : %.4f, F1_score : %.4f' %                     (epoch, epochs, i_step, total_step, loss.item(), val_loss.item(), val_accuracy, val_precision, val_recall, val_F1_score)
+            
+            stats_loss = 'Epoch [%d/%d], Step [%d/%d], Loss: %.4f, Val Loss: %.4f, ' % \
+                        (epoch, epochs, i_step, total_step, loss.item(), val_loss.item())
+            stats_metric = 'accuracy : %.4f, precision : %.4f, recall : %.4f, F1_score : %.4f, ' % \
+                            (val_accuracy, val_precision, val_recall, val_F1_score)
+            stats_conf = 'TP : %d, FP : %d, TN : %d, FN : %d' % (TP, FP, TN, FN)
+            stats = stats_loss + stats_metric + stats_conf
 
             print('\r', stats, end="")
 
@@ -207,19 +180,68 @@ def train(h_params, dataset):
     t1 = time.time()
 
     print('finished in {} seconds'.format(t1 - t0))
+    
+    return encoder
 
-def test(dataset):
+def test(model, dataset):
+    criterion = nn.BCELoss(reduction='mean')
+    
     with torch.no_grad():
-        encoder.eval()
+        model.eval()
 
-        test_inp, test_label = next(iter(dataset['test_loader']))
-        test_inp = test_inp.to(DEVICE)
-        test_label = test_label.to(DEVICE)
-        test_outputs = encoder(test_inp).to(DEVICE)
+        test_inps, test_labels = next(iter(dataset['test_loader']))
+        
+        for i in range(6):
+            test_inp = test_inps[:,:,i*1000:(i+1)*1000]
+            test_label = test_labels[:,:,i]
+            test_output = model(test_inp)
+            if i == 0:
+                test_outputs = test_output
+            else:
+                test_outputs = torch.cat((test_outputs, test_output), 1)
+        test_outputs = torch.unsqueeze(test_outputs, 1).to(DEVICE)
+        test_labels = test_labels.to(DEVICE)
 
-        test_loss = criterion(test_outputs, test_label)
-        test_accuracy, test_precision, test_recall, test_F1_score = metric(test_outputs, test_label)
+        for i in range(6):
+            if i == 0:
+                test_loss = criterion(test_outputs[:,:,i], test_labels[:,:,i])
+            else:
+                test_loss += criterion(test_outputs[:,:,i], test_labels[:,:,i])
 
-    stats = 'Loss: %.4f, accuracy : %.4f, precision : %.4f, recall : %.4f, F1_score : %.4f' %                     (test_loss.item(), test_accuracy, test_precision, test_recall, test_F1_score)
+                        
+        test_accuracy, test_precision, test_recall, test_F1_score, TP, FP, TN, FN = metric(test_outputs, test_labels)
+
+    stats = 'Loss: %.4f, accuracy : %.4f, precision : %.4f, recall : %.4f, F1_score : %.4f' % \
+            (test_loss.item(), test_accuracy, test_precision, test_recall, test_F1_score)
+    stats_conf = 'TP : %d, FP : %d, TN : %d, FN : %d' % (TP, FP, TN, FN)
 
     print(stats)
+    print(stats_conf)
+    
+def metric(test_outps, test_y_p):
+    test_outps = torch.round(test_outps)
+    test_y_p = torch.round(test_y_p)
+    TP = FP = TN = FN = 0 + sys.float_info.epsilon
+    
+    for idx in range(test_y_p.size()[0]):
+        for i in range(test_y_p.size()[2]):
+            
+            if 1 in test_y_p[idx][0]:
+                if int(test_outps[idx][0][i]) != int(test_y_p[idx][0][i]):
+                    FN += 1
+                    break
+                if i == (test_y_p.size()[2]-1):
+                    TP += 1
+            else:
+                if int(test_outps[idx][0][i]) != int(test_y_p[idx][0][i]):
+                    FP += 1
+                    break
+                if i == (test_y_p.size()[2]-1):
+                    TN += 1
+            
+    accuracy = (TP + TN) / (TP + FP + TN + FN)
+    precision = TP / (TP + FP)
+    recall = TP / (TP + FN)
+    F1_score = 2*(precision * recall)/(precision + recall)
+    
+    return accuracy, precision, recall, F1_score, TP, FP, TN, FN
